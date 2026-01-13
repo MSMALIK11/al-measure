@@ -1,6 +1,6 @@
 "use client"
 
-import AdminDashboard from "@/components/admin-dashboard"
+import AdminDashboard from "@/components/admin/admin-dashboard"
 import Sidebar, { NavItem } from "@/components/shared/Sidebar"
 import { Home, ClipboardList, Users, Settings } from "lucide-react"
 

@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
+import { useFeatureStore } from "@/app/store/useClientStore"
 
-
-export default function TakeoffSidebar() {
+export default function TakeoffSidebar({areaSqft}:{areaSqft?:number|string}) {
   const [takeoffType, setTakeoffType] = useState("landscaping")
   const [features, setFeatures] = useState<string[]>(["pavement"])
-
+const {openModal,closeModal}= useFeatureStore()
   const toggleFeature = (f: string) => {
     setFeatures((prev) =>
       prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
@@ -31,14 +31,17 @@ export default function TakeoffSidebar() {
             3350 Garnet Place, Columbus, OH, USA
           </p>
         </CardHeader>
-        <CardContent className="p-0">
+        {
+          areaSqft &&  <CardContent className="p-0">
           <div className="flex items-center gap-2 text-sm">
             <span className="px-2 py-1 rounded bg-green-100 text-green-700 font-medium">
               Lot Area
             </span>
-            <span className="font-medium">304,810 sqft</span>
+            <span className="font-medium">{areaSqft} sqft</span>
           </div>
         </CardContent>
+        }
+       
       </Card>
 
       {/* Info text */}
@@ -96,8 +99,8 @@ export default function TakeoffSidebar() {
 
       {/* Action Buttons */}
       <div className="mt-5 flex flex-col gap-2">
-        <Button className="w-full">Confirm Lot Boundary and Review Takeoff</Button>
-        <Button variant="outline" className="w-full">
+        <Button className="w-full" onClick={openModal}>Confirm Lot Boundary and Review Takeoff</Button>
+        <Button variant="outline" className="w-full" onClick={closeModal}>
           Cancel
         </Button>
         <Button variant="ghost" className="w-full text-destructive">

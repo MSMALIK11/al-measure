@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { useTasksStore } from "@/lib/tasks-store"
 import { statusLabel, type Task } from "@/lib/task-types"
 
-export default function ClientDashboard() {
+export default function DeveloperDashboard() {
   const { tasks, clientId, addTask } = useTasksStore()
   const [pendingFeature, setPendingFeature] = useState<any | null>(null)
   const [open, setOpen] = useState(false)
@@ -32,7 +32,7 @@ export default function ClientDashboard() {
     setPendingFeature(null)
     setTitle("")
     setDescription("")
-    console.log("[v0] Task created:", created.id)
+    console.log(" Task created:", created.id)
   }, [pendingFeature, title, description, addTask])
 
   return (

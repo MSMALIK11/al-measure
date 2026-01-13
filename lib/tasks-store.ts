@@ -36,6 +36,7 @@ export const useTasksStore = create<State>()(
           status: "pending",
           createdAt: now,
           updatedAt: now,
+          areaSqft: partial.areaSqft,
           clientId: get().clientId,
         }
         set((s) => ({ tasks: [task, ...s.tasks] }))

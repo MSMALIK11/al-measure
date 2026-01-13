@@ -27,8 +27,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 // import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import Toolbox from "./ToolBox"
-import TakeoffSidebar from "./ClientTakeoffSidebar"
-
+import TakeoffSidebar from "@/components/client/TakeoffSidebar"
+import { Polygon } from "ol/geom"
+import Feature from "ol/Feature"
+import { useFeatureStore } from "@/app/store/useClientStore"
+import { Task } from "@/lib/task-types"
 type Feature = any
 type Geometry = any
 
@@ -57,9 +60,15 @@ type LayerItem = {
   visible: boolean
   stats: number
 }
-
+ type FeatureInfo = {
+    type: string;
+    area?: number;
+    length?: number;
+    unit?: string;
+  }
 type MapAppProps = {
-  onFeatureDrawn?: (feature: any, layerType: LayerType) => void
+  onFeatureDrawn?: (feature: any) => void
+  getAreaSqft?: (area:string) => void
   userRole: string
 }
 
@@ -87,13 +96,13 @@ export default function MapApp(props: MapAppProps) {
     polygon: true,
     line: false,
     point: false,
-  })
-
+  })  
+const {addFeature} = useFeatureStore()
   // Layers state
   const [layers, setLayers] = useState<Record<LayerType, LayerItem[]>>(defaultLayers)
   const [selectedLayerType, setSelectedLayerType] = useState<LayerType>("polygon")
   const [selectedLayerId, setSelectedLayerId] = useState<string>("parcels")
-
+const[areaSqft,setAreaSqft]=useState<number|string>("")
   // OL refs (initialized after OL loads)
   const mapRef = useRef<Map | null>(null)
   const mapElRef = useRef<HTMLDivElement | null>(null)
@@ -111,13 +120,12 @@ export default function MapApp(props: MapAppProps) {
 
   // Coordinates + info overlays
   const [coordsText, setCoordsText] = useState("Longitude: 78.9629° | Latitude: 20.5937° | Zoom: 5")
-  const [featureInfo, setFeatureInfo] = useState<string | null>(null)
-
+  const [featureInfo, setFeatureInfo] = useState<FeatureInfo | null>(null)
+const [takeoffFeatureArea,setTakeoffarea]=useState({})
   // Symbology
   const [symbolOpen, setSymbolOpen] = useState(false)
   const [symbolColor, setSymbolColor] = useState("#4a80f5")
   const [symbolOpacity, setSymbolOpacity] = useState(70) // 0-100
-
   // History
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [historyPointer, setHistoryPointer] = useState(-1)
@@ -160,8 +168,8 @@ export default function MapApp(props: MapAppProps) {
 
     const base = new TileLayer({
       source: new XYZ({
-        url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        attributions: "Tiles © Esri",
+        url: "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        attributions: "google",
         maxZoom: 20,
       }),
     })
@@ -282,20 +290,45 @@ export default function MapApp(props: MapAppProps) {
           map.addInteraction(sel)
           sel.on("select", (e: any) => {
             if (e.selected.length > 0) {
-              const f = e.selected[0]
-              const geomType = f.getGeometry()?.getType()
+              const f = e.selected[0];
+              const geomType = f.getGeometry()?.getType();
               if (geomType === "Polygon") {
-                const areaSqFt = (getArea(f.getGeometry()) * 10.764).toFixed(2)
-                setFeatureInfo(`<strong>Type:</strong> Polygon<br><strong>Area:</strong> ${areaSqFt} sq ft`)
+                const areaSqFt = +(getArea(f.getGeometry()) * 10.764).toFixed(2);
+                setFeatureInfo({
+                  type: "Polygon",
+                  area: areaSqFt,
+                  unit: "sq ft",
+                });
+                console.log('setting',areaSqFt)
+                addFeature({
+                  type: "Polygon",
+                  area: areaSqFt,
+                  unit: "sq ft",
+                })
+               
               } else if (geomType === "LineString") {
-                const lengthFt = (getLength(f.getGeometry()) * 3.281).toFixed(2)
-                setFeatureInfo(`<strong>Type:</strong> Line<br><strong>Length:</strong> ${lengthFt} ft`)
+                const lengthFt = +(getLength(f.getGeometry()) * 3.281).toFixed(2);
+                setFeatureInfo({
+                  type: "Line",
+                  length: lengthFt,
+                  unit: "ft",
+                });
+                addFeature({
+                   type: "Line",
+                  length: lengthFt,
+                  unit: "ft",
+                })
               } else {
-                setFeatureInfo(`<strong>Type:</strong> Point`)
+                setFeatureInfo({
+                  type: "Point",
+                });
+                
               }
             } else {
-              setFeatureInfo(null)
+              setFeatureInfo(null);
+             
             }
+
           })
           break
         }
@@ -319,6 +352,8 @@ export default function MapApp(props: MapAppProps) {
                 if (key === "polygon") {
                   const areaSqFt = getArea(e.feature.getGeometry()) * 10.764
                   item.stats = Number.parseFloat((item.stats + areaSqFt).toFixed(2))
+                  props.getAreaSqft?.(areaSqFt.toString())
+                  setAreaSqft( Number.parseFloat((areaSqFt).toFixed(2)))
                 } else if (key === "line") {
                   const lenFt = getLength(e.feature.getGeometry()) * 3.281
                   item.stats = Number.parseFloat((item.stats + lenFt).toFixed(2))
@@ -342,19 +377,53 @@ export default function MapApp(props: MapAppProps) {
             try {
               const fmt = new GeoJSON()
               const featureObj = fmt.writeFeatureObject(e.feature)
-              props.onFeatureDrawn?.(featureObj, selectedLayerType)
+              const items=layers?.polygon
+              console.log('layers',layers)
+              console.log('layers',items.map(i=>console.log(i)))
+              console.log('featureInfo',featureInfo,)
+              
+              props.onFeatureDrawn?.(featureObj)
+              setTakeoffarea(featureObj)
             } catch (err) {
               console.error("[v0] Failed to serialize feature:", err)
             }
           })
           break
         }
-        case "reshape": {
-          const modify = new Modify({ source })
-          modifyRef.current = modify
-          map.addInteraction(modify)
-          break
+       case "reshape": {
+  const modify = new Modify({ source })
+  modifyRef.current = modify
+  map.addInteraction(modify)
+
+  modify.on("modifyend", (e: any) => {
+    e.features.forEach((f: any) => {
+      setLayers((prev) => {
+        const newState = { ...prev }
+        const key = selectedLayerType
+        const list = [...newState[key]]
+        const idx = list.findIndex((l) => l.id === selectedLayerId)
+        if (idx !== -1) {
+          const item = { ...list[idx] }
+          if (key === "polygon") {
+            const areaSqFt = getArea(f.getGeometry()) * 10.764
+            item.stats = Number.parseFloat(areaSqFt.toFixed(2)) // replace with updated area
+            props.getAreaSqft?.(areaSqFt.toString())
+            setAreaSqft(Number.parseFloat(areaSqFt.toFixed(2)))
+          } else if (key === "line") {
+            const lenFt = getLength(f.getGeometry()) * 3.281
+            item.stats = Number.parseFloat(lenFt.toFixed(2))
+          }
+          list[idx] = item
+          newState[key] = list
         }
+        return newState
+      })
+    })
+  })
+
+  break
+}
+
         case "delete": {
           const sel = new Select()
           selectRef.current = sel
@@ -449,6 +518,25 @@ export default function MapApp(props: MapAppProps) {
     }
     setHistoryPointer((p) => p + 1)
   }, [history, historyPointer])
+  const bboxLayerRef = useRef<VectorLayer<VectorSource<Feature<Polygon>>> | null>(null);
+  useEffect(() => {
+    if (!bboxLayerRef.current) {
+      bboxLayerRef.current = new VectorLayer({
+        source: new VectorSource(),
+        style: new Style({
+          stroke: new Stroke({
+            color: 'rgba(0, 150, 255, 0.8)',
+            width: 2
+          }),
+          fill: new Fill({
+            color: 'rgba(0, 150, 255, 0.2)'
+          })
+        })
+      });
+      mapRef.current?.addLayer(bboxLayerRef.current);
+    }
+  }, []);
+ 
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -476,23 +564,13 @@ export default function MapApp(props: MapAppProps) {
     const val = search.trim()
     if (!val) return
 
-    // Try "lon,lat"
-    const parts = val.split(",").map((p) => Number.parseFloat(p.trim()))
-    if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
-      const center = fromLonLat([parts[0], parts[1]])
-      map.getView().animate({ center, zoom: 15, duration: 800 })
-      markerOverlayRef.current?.setPosition(center)
-      setTimeout(() => markerOverlayRef.current?.setPosition(undefined), 10000)
-      return
-    }
-
     try {
       const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(val)}`)
       const data = await resp.json()
       if (Array.isArray(data) && data.length > 0) {
         const { lon, lat } = data[0]
         const center = fromLonLat([Number.parseFloat(lon), Number.parseFloat(lat)])
-        map.getView().animate({ center, zoom: 15, duration: 800 })
+        map.getView().animate({ center, zoom: 17, duration: 800 })
         markerOverlayRef.current?.setPosition(center)
         setTimeout(() => markerOverlayRef.current?.setPosition(undefined), 10000)
       } else {
@@ -503,39 +581,38 @@ export default function MapApp(props: MapAppProps) {
       alert("Geocoding service unavailable. Please try again later.")
     }
   }, [search])
-
   // Imagery selector
-  const onImageryChange = useCallback((e:any) => {
+  const onImageryChange =(e: any) => {
     const base = baseLayerRef.current
-    const {value} = e.target
+    // const { value } = e.target
     if (!base) return
-    let url = ""
-    let attributions = ""
+    let url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+    let attributions = "Google"
     let maxZoom = 20
-    switch (value) {
-      case "esri":
-        url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-        attributions = "Tiles © Esri"
-        maxZoom = 20
-        break
-      case "google":
-        url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
-        attributions = "Google"
-        maxZoom = 20
-        break
-      case "bing":
-        url = "https://tiles.virtualearth.net/tiles/a{q}.jpeg?g=1"
-        attributions = "Bing Maps"
-        maxZoom = 19
-        break
-      case "usgs":
-        url = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
-        attributions = "USGS"
-        maxZoom = 16
-        break
-    }
+    // switch (value) {
+    //   case "esri":
+    //     url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+    //     attributions = "Tiles © Esri"
+    //     maxZoom = 20
+    //     break
+    //   case "google":
+    //     url = "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}"
+    //     attributions = "Google"
+    //     maxZoom = 20
+    //     break
+    //   case "bing":
+    //     url = "https://tiles.virtualearth.net/tiles/a{q}.jpeg?g=1"
+    //     attributions = "Bing Maps"
+    //     maxZoom = 19
+    //     break
+    //   case "usgs":
+    //     url = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}"
+    //     attributions = "USGS"
+    //     maxZoom = 16
+    //     break
+    // }
     base.setSource(new XYZ({ url, attributions, maxZoom }))
-  }, [])
+  }
 
   // File upload
   const onUpload = useCallback((type: LayerType, file: File | null) => {
@@ -589,13 +666,13 @@ export default function MapApp(props: MapAppProps) {
   const onSaveProject = useCallback(() => {
     const all = { type: "FeatureCollection", features: [] as any[] }
     const fmt = new GeoJSON()
-    ;(["polygon", "line", "point"] as LayerType[]).forEach((lt) => {
-      sourcesRef.current[lt].getFeatures().forEach((f: any) => {
-        const obj = fmt.writeFeatureObject(f)
-        ;(obj as any).properties = { ...(obj as any).properties, layerType: lt }
-        all.features.push(obj)
+      ; (["polygon", "line", "point"] as LayerType[]).forEach((lt) => {
+        sourcesRef.current[lt].getFeatures().forEach((f: any) => {
+          const obj = fmt.writeFeatureObject(f)
+            ; (obj as any).properties = { ...(obj as any).properties, layerType: lt }
+          all.features.push(obj)
+        })
       })
-    })
     const blob = new Blob([JSON.stringify(all)], { type: "application/json" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -664,12 +741,12 @@ export default function MapApp(props: MapAppProps) {
     type === "point"
       ? `Total Points: ${v}`
       : type === "line"
-      ? `Total Length: ${v.toFixed(2)} ft`
-      : `Total Area: ${v.toFixed(2)} sq ft`
+        ? `Total Length: ${v.toFixed(2)} ft`
+        : `Total Area: ${v.toFixed(2)} sq ft`
 
   // UI
   const header = (
-    <header className="h-14 flex items-center justify-between px-4 ">
+    <header className="h-14  flex items-center justify-between px-4 ">
       <div className="flex items-center gap-2 font-semibold">
         <span aria-hidden="true">🗺️</span>
         <span className="text-pretty">Live Landscape Measurements</span>
@@ -699,10 +776,10 @@ export default function MapApp(props: MapAppProps) {
   )
 
   const Panel = ({ type, title, children }: { type: LayerType; title: string; children: React.ReactNode }) => (
-    <Card className="bg-card text-card-foreground">
+    <Card className="bg-card text-card-foreground ">
       <CardHeader
         onClick={() => setActivePanel((p) => ({ ...p, [type]: !p[type] }))}
-        className="cursor-pointer py-3"
+        className="cursor-pointer"
         aria-expanded={activePanel[type]}
         role="button"
       >
@@ -782,6 +859,7 @@ export default function MapApp(props: MapAppProps) {
                   <div className="flex flex-col">
                     <span>{it.name}</span>
                     <span className="text-xs text-muted-foreground">{statLabel(it.type, it.stats)}</span>
+                    
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -807,6 +885,7 @@ export default function MapApp(props: MapAppProps) {
                   >
                     🗑️
                   </Button>
+                  
                 </div>
               </div>
             )
@@ -818,6 +897,7 @@ export default function MapApp(props: MapAppProps) {
 
   return (
     <div className="flex flex-col h-[100svh]">
+    
       {header}
 
       <div className="flex flex-1 min-h-0">
@@ -835,30 +915,31 @@ export default function MapApp(props: MapAppProps) {
             </Panel>
           </div>
         </aside> */}
-        <aside className=" shrink-0 border-r bg-sidebar text-sidebar-foreground p-3 overflow-auto">
-  <div className="flex flex-col gap-3">
-    {props.userRole === "developer" && (
-      <>
-        <Panel type="polygon" title="Polygon Layers">
-          <LayerList type="polygon" />
-        </Panel>
-        <Panel type="line" title="Line Layers">
-          <LayerList type="line" />
-        </Panel>
-        <Panel type="point" title="Point Layers">
-          <LayerList type="point" />
-        </Panel>
-     
-      </>
-    )}
+        <aside className=" shrink-0 border-r  text-sidebar-foreground p-3 overflow-auto">
+          <div className="flex flex-col gap-3">
+            {props.userRole === "developer" && (
+              <>
+                <Panel type="polygon" title="Polygon Layers">
+                  <LayerList type="polygon" />
+                </Panel>
+                <Panel type="line" title="Line Layers">
+                  <LayerList type="line" />
+                </Panel>
+                <Panel type="point" title="Point Layers">
+                  <LayerList type="point" />
+                </Panel>
 
-    {props.userRole === "client" && (
-      <>
-      <TakeoffSidebar />
-      </>
-    )}
-  </div>
-</aside>
+              </>
+            )}
+
+            {props.userRole === "client" && (
+              <>
+                <TakeoffSidebar areaSqft={areaSqft} />
+                
+              </>
+            )}
+          </div>
+        </aside>
 
 
         {/* Map area */}
@@ -868,20 +949,32 @@ export default function MapApp(props: MapAppProps) {
 
 
           {/* Drawing info */}
-          {isDrawing && (
+          {/* {isDrawing && (
             <div className="absolute top-[84px] right-4 bg-popover text-popover-foreground rounded-md shadow p-3 text-xs max-w-[250px] z-10">
               <div>Click on the map to start drawing</div>
               <div className="text-muted-foreground mt-1">Press Backspace to remove last vertex</div>
             </div>
-          )}
+          )} */}
 
           {/* Feature info */}
           {featureInfo && (
-            <div
-              className="absolute bottom-24 left-4 bg-popover text-popover-foreground rounded-md shadow p-3 text-xs max-w-[300px] max-h-[150px] overflow-auto z-10"
-              dangerouslySetInnerHTML={{ __html: `<h6>Feature Information</h6><div>${featureInfo}</div>` }}
-            />
+            <div className="absolute bottom-40 left-4 
+                  w-72 max-h-40 p-4 rounded-xl 
+                  bg-secondary/80 backdrop-blur-md 
+                  border border-white/30 
+                  shadow-lg text-white text-xs overflow-auto z-10">
+              <h6 className="text-sm font-semibold mb-2">Feature Information</h6>
+              <div>Type: {featureInfo.type}</div>
+              {"area" in featureInfo && (
+                <h5>Area: {featureInfo.area} {featureInfo.unit}</h5>
+              )}
+              {"length" in featureInfo && (
+                <div>Length: {featureInfo.length} {featureInfo.unit}</div>
+              )}
+            </div>
           )}
+
+
 
           {/* Symbol panel */}
           {symbolOpen && (
@@ -917,30 +1010,21 @@ export default function MapApp(props: MapAppProps) {
             </div>
           )}
 
-          {/* History + Imagery */}
-          <div className="absolute bottom-20 right-4 flex items-center gap-3 z-10">
-            <Button onClick={onUndo} variant="secondary" size="sm" title="Undo (Ctrl+Z)">
-              Undo
-            </Button>
+          {/* History Controls */}
+          {/* <div className="absolute bottom-20 right-4 flex items-center gap-2 z-10">
             <Card className="bg-popover text-popover-foreground">
               <CardContent className="p-3">
-                <div className="text-xs font-semibold mb-2">Satellite Imagery</div>
-                <select
-    onchange={onImageryChange}
-    className="w-60 border rounded-md p-2 text-sm"
-    aria-label="Select satellite imagery"
-  >
-    <option value="esri" selected>ESRI World Imagery (High Resolution)</option>
-    <option value="google">Google Satellite</option>
-    <option value="bing">Bing Maps Aerial</option>
-    <option value="usgs">USGS Historical</option>
-  </select>
+                <div className="flex items-center gap-2">
+                  <Button onClick={onUndo} variant="secondary" size="sm" title="Undo (Ctrl+Z)">
+                    Undo
+                  </Button>
+                  <Button onClick={onRedo} variant="secondary" size="sm" title="Redo (Ctrl+Y)">
+                    Redo
+                  </Button>
+                </div>
               </CardContent>
             </Card>
-            <Button onClick={onRedo} variant="secondary" size="sm" title="Redo (Ctrl+Y)">
-              Redo
-            </Button>
-          </div>
+          </div> */}
 
           {/* Coordinates */}
           <div className="absolute bottom-4 left-4 bg-popover text-popover-foreground rounded-md shadow px-3 py-2 text-xs z-10">

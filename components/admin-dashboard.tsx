@@ -59,6 +59,9 @@ export default function AdminDashboard() {
           <Button asChild variant="outline">
             <a href="/client">Go to Client</a>
           </Button>
+          <Button asChild variant="outline">
+            <a href="/developer">Developer</a>
+          </Button>
         </div>
       </header>
 
@@ -106,31 +109,33 @@ function AdminTaskRow({ task }: { task: Task }) {
       <TableCell className="text-xs">{task.clientId.slice(0, 8)}</TableCell>
       <TableCell className="text-right">
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Change Status</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => setStatus(task.id, "pending")}>
-              Mark Pending
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatus(task.id, "under_review")}>
-              Under Review
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setStatus(task.id, "completed")}>
-              Complete
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-red-600"
-              onClick={() => removeTask(task.id)}
-            >
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="ghost" size="icon">
+      <MoreHorizontal className="h-4 w-4" />
+      <span className="sr-only">Open menu</span>
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent align="end" sideOffset={4}>
+    <DropdownMenuLabel>Change Status</DropdownMenuLabel>
+    <DropdownMenuItem onClick={() => setStatus(task.id, "pending")}>
+      Mark Pending
+    </DropdownMenuItem>
+    <DropdownMenuItem onClick={() => setStatus(task.id, "under_review")}>
+      Under Review
+    </DropdownMenuItem>
+    <DropdownMenuItem onClick={() => setStatus(task.id, "completed")}>
+      Complete
+    </DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem
+      className="text-red-600"
+      onClick={() => removeTask(task.id)}
+    >
+      Delete
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+
       </TableCell>
     </TableRow>
   )
