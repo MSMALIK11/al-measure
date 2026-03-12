@@ -13,6 +13,7 @@ import Style from "ol/style/Style"
 import Fill from "ol/style/Fill"
 import Stroke from "ol/style/Stroke"
 import CircleStyle from "ol/style/Circle"
+import Text from "ol/style/Text"
 import Draw from "ol/interaction/Draw"
 import Modify from "ol/interaction/Modify"
 import Select from "ol/interaction/Select"
@@ -24,6 +25,7 @@ import "ol/ol.css"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { MapPin } from "lucide-react"
 // import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import Toolbox from "./ToolBox"
@@ -68,8 +70,34 @@ type LayerItem = {
   }
 type MapAppProps = {
   onFeatureDrawn?: (feature: any) => void
-  getAreaSqft?: (area:string) => void
+  getAreaSqft?: (area: string) => void
   userRole: string
+  takeoffIndustry?: string
+  onTakeoffIndustryChange?: (v: string) => void
+  selectedFeatures?: string[]
+  onFeaturesChange?: (features: string[]) => void
+  onLocateMe?: () => void
+  /** For employee: load request's existing geometry into the map */
+  initialGeometry?: any
+  /** Called when geometry changes (draw/modify/delete) so parent can save */
+  onGeometryChange?: (
+    geometry: { type: "FeatureCollection"; features: any[] },
+    takeoffItemsFromMap: { id: string; label: string; type: "polygon" | "line" | "point"; area?: number; length?: number; unit: string; color?: string }[]
+  ) => void
+  /** Current surface for new shapes (label + color). When set, new drawn features get this label and color. */
+  activeSurface?: { id: string; label: string; color: string }
+  /** Aggregated stats by label (area/length) for sidebar display */
+  onSurfaceStats?: (stats: { label: string; color: string; area: number; length?: number }[]) => void
+  /** QA comments with map position (employee view). When showCommentPins is true, show as pins on map. */
+  commentPins?: Array<{ id: string; text: string; position?: [number, number] }>
+  /** When true, render comment pins on the map (employee can hide/show) */
+  showCommentPins?: boolean
+  /** Client request creation: address shown in sidebar */
+  propertyAddress?: string
+  /** Client request creation: address change callback */
+  onPropertyAddressChange?: (v: string) => void
+  /** Client request creation: "Not My Property" callback */
+  onNotMyProperty?: () => void
 }
 
 const defaultLayers: Record<LayerType, LayerItem[]> = {
@@ -89,6 +117,17 @@ const defaultLayers: Record<LayerType, LayerItem[]> = {
 
 const colorChoices = ["#4a80f5", "#f54a4a", "#4af54a", "#f5e64a", "#9d4af5", "#f54ae6"]
 
+const DEFAULT_SURFACES = [
+  { id: "lawn", label: "Lawn", color: "#22c55e" },
+  { id: "drive-lanes", label: "Drive Lanes", color: "#3b82f6" },
+  { id: "driveway", label: "Driveway", color: "#78716c" },
+  { id: "building", label: "Building", color: "#6366f1" },
+  { id: "mulch", label: "Mulch Bed", color: "#a16207" },
+  { id: "pavement", label: "Pavement", color: "#64748b" },
+  { id: "parking", label: "Parking", color: "#a855f7" },
+  { id: "sidewalk", label: "Sidewalk", color: "#94a3b8" },
+]
+
 export default function MapApp(props: MapAppProps) {
   // Layout state
   const [search, setSearch] = useState("")
@@ -96,13 +135,29 @@ export default function MapApp(props: MapAppProps) {
     polygon: true,
     line: false,
     point: false,
-  })  
-const {addFeature} = useFeatureStore()
+  })
+  const { addFeature } = useFeatureStore()
   // Layers state
   const [layers, setLayers] = useState<Record<LayerType, LayerItem[]>>(defaultLayers)
   const [selectedLayerType, setSelectedLayerType] = useState<LayerType>("polygon")
   const [selectedLayerId, setSelectedLayerId] = useState<string>("parcels")
-const[areaSqft,setAreaSqft]=useState<number|string>("")
+  const [areaSqft, setAreaSqft] = useState<number | string>("")
+  // Surfaces (for client/employee): multiple shapes with colors and labels
+  const [surfaces, setSurfaces] = useState<{ id: string; label: string; color: string }[]>(DEFAULT_SURFACES)
+  const [activeSurfaceId, setActiveSurfaceId] = useState<string>(DEFAULT_SURFACES[0]?.id ?? "lawn")
+  const [surfaceStats, setSurfaceStats] = useState<{ label: string; color: string; area: number; length?: number }[]>([])
+  const activeSurface = surfaces.find((s) => s.id === activeSurfaceId) || surfaces[0]
+  const [surfacesVisible, setSurfacesVisible] = useState(true)
+  /** Labels to hide on the map (per-surface visibility). */
+  const [hiddenSurfaceLabels, setHiddenSurfaceLabels] = useState<string[]>([])
+  const highlightedSurfaceLabelRef = useRef<string | null>(null)
+  const hiddenSurfaceLabelsRef = useRef<Set<string>>(new Set())
+  /** Ref so drawend always uses the currently selected surface (avoids stale closure). */
+  const activeSurfaceRef = useRef<{ id: string; label: string; color: string } | null>(
+    surfaces.find((s) => s.id === activeSurfaceId) || surfaces[0] || null
+  )
+  const surfacesRef = useRef(surfaces)
+  surfacesRef.current = surfaces
   // OL refs (initialized after OL loads)
   const mapRef = useRef<Map | null>(null)
   const mapElRef = useRef<HTMLDivElement | null>(null)
@@ -110,6 +165,8 @@ const[areaSqft,setAreaSqft]=useState<number|string>("")
   const sourcesRef = useRef<Record<LayerType, VectorSource>>({} as any)
   const vectorLayersRef = useRef<Record<LayerType, VectorLayer>>({} as any)
   const markerOverlayRef = useRef<Overlay | null>(null)
+  const commentOverlaysRef = useRef<Overlay[]>([])
+  const [mapReady, setMapReady] = useState(false)
 
   // Interactions
   const drawRef = useRef<Draw | null>(null)
@@ -140,29 +197,92 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
       line: new VectorSource(),
       point: new VectorSource(),
     }
+    const defaultColor = "#4a80f5"
+    // Same group = same transparent fill (by label/color). Highlight = thicker stroke only.
+    const GROUP_FILL_OPACITY = 0.35
+    const styleFn = (f: any, layerType: LayerType, highlight: boolean) => {
+      const color = f.get("color") || defaultColor
+      const label = f.get("label") || ""
+      const hexToRgba = (hex: string, alpha: number) => {
+        const r = Number.parseInt(hex.slice(1, 3), 16)
+        const g = Number.parseInt(hex.slice(3, 5), 16)
+        const b = Number.parseInt(hex.slice(5, 7), 16)
+        return `rgba(${r},${g},${b},${alpha})`
+      }
+      const strokeWidth = layerType === "polygon" ? (highlight ? 4 : 2) : highlight ? 4 : 3
+      const textStyle =
+        label && layerType === "polygon"
+          ? new Text({
+              text: label,
+              fill: new Fill({ color: "#1a1a1a" }),
+              stroke: new Stroke({ color: "#fff", width: 3 }),
+              font: "bold 12px sans-serif",
+              overflow: true,
+            })
+          : label && (layerType === "line" || layerType === "point")
+            ? new Text({
+                text: label,
+                fill: new Fill({ color: "#1a1a1a" }),
+                stroke: new Stroke({ color: "#fff", width: 2 }),
+                font: "11px sans-serif",
+                overflow: true,
+              })
+            : undefined
+      if (layerType === "polygon") {
+        const geom = f.getGeometry()
+        const interior = geom && typeof geom.getInteriorPoint === "function" ? geom.getInteriorPoint() : null
+        const fillColor = hexToRgba(color, GROUP_FILL_OPACITY)
+        if (label && interior) {
+          return [
+            new Style({
+              fill: new Fill({ color: fillColor }),
+              stroke: new Stroke({ color, width: strokeWidth }),
+            }),
+            new Style({
+              geometry: interior,
+              text: textStyle,
+            }),
+          ]
+        }
+        return new Style({
+          fill: new Fill({ color: fillColor }),
+          stroke: new Stroke({ color, width: strokeWidth }),
+          text: textStyle || undefined,
+        })
+      }
+      if (layerType === "line") {
+        return new Style({
+          stroke: new Stroke({ color, width: strokeWidth }),
+          text: textStyle,
+        })
+      }
+      return new Style({
+        image: new CircleStyle({
+          radius: highlight ? 10 : 8,
+          fill: new Fill({ color }),
+          stroke: new Stroke({ color: "#fff", width: 2 }),
+        }),
+        text: textStyle,
+      })
+    }
+    const vectorStyleWithHighlight = (f: any, layerType: LayerType) => {
+      const label = f.get("label") || ""
+      if (hiddenSurfaceLabelsRef.current.has(label)) return null
+      const highlight = highlightedSurfaceLabelRef.current === label
+      return styleFn(f, layerType, highlight)
+    }
     vectorLayersRef.current = {
       polygon: new VectorLayer({
         source: sourcesRef.current.polygon,
-        style: new Style({
-          fill: new Fill({ color: "rgba(74, 128, 245, 0.3)" }),
-          stroke: new Stroke({ color: "#4a80f5", width: 2 }),
-        }),
+        style: (f) => vectorStyleWithHighlight(f, "polygon"),
       }),
       line: new VectorLayer({
         source: sourcesRef.current.line,
-        style: new Style({
-          stroke: new Stroke({ color: "#ff5722", width: 3 }),
-        }),
+        style: (f) => vectorStyleWithHighlight(f, "line"),
       }),
       point: new VectorLayer({
         source: sourcesRef.current.point,
-        style: new Style({
-          image: new CircleStyle({
-            radius: 7,
-            fill: new Fill({ color: "#ffeb3b" }),
-            stroke: new Stroke({ color: "#ffc107", width: 2 }),
-          }),
-        }),
+        style: (f) => vectorStyleWithHighlight(f, "point"),
       }),
     }
 
@@ -185,6 +305,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
       }),
     })
     mapRef.current = map
+    const tReady = setTimeout(() => setMapReady(true), 0)
 
     // Search marker overlay
     const markerEl = document.createElement("div")
@@ -204,10 +325,125 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
     setSelectedLayerId("parcels")
 
     return () => {
+      clearTimeout(tReady)
+      setMapReady(false)
       map.setTarget(undefined)
       mapRef.current = null
     }
   }, [])
+
+  // Keep activeSurfaceRef in sync so drawend always uses the selected surface
+  useEffect(() => {
+    activeSurfaceRef.current = activeSurface ?? null
+  }, [activeSurface])
+
+  // Sync highlighted surface (sidebar selection) → ref and redraw shapes
+  useEffect(() => {
+    const label = activeSurface?.label ?? null
+    highlightedSurfaceLabelRef.current = label
+    if (sourcesRef.current) {
+      sourcesRef.current.polygon.changed()
+      sourcesRef.current.line.changed()
+      sourcesRef.current.point.changed()
+    }
+  }, [activeSurface?.label])
+
+  // Sync hidden surface labels → ref and redraw shapes
+  useEffect(() => {
+    hiddenSurfaceLabelsRef.current = new Set(hiddenSurfaceLabels)
+    if (sourcesRef.current) {
+      sourcesRef.current.polygon.changed()
+      sourcesRef.current.line.changed()
+      sourcesRef.current.point.changed()
+    }
+  }, [hiddenSurfaceLabels])
+
+  // Comment pins (QA feedback on map) – employee can show/hide
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapReady || !map) return
+    commentOverlaysRef.current.forEach((o) => map.removeOverlay(o))
+    commentOverlaysRef.current = []
+    const pins = props.showCommentPins && props.commentPins?.length ? props.commentPins : []
+    const withPosition = pins.filter((c): c is typeof c & { position: [number, number] } => !!c.position && c.position.length >= 2)
+    withPosition.forEach((c, i) => {
+      const el = document.createElement("div")
+      el.title = c.text
+      el.textContent = String(i + 1)
+      Object.assign(el.style, {
+        width: "28px",
+        height: "28px",
+        borderRadius: "50%",
+        background: "#f59e0b",
+        color: "#fff",
+        border: "2px solid white",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "12px",
+        fontWeight: "bold",
+        cursor: "pointer",
+      })
+      const overlay = new Overlay({
+        element: el,
+        position: fromLonLat(c.position),
+        positioning: "bottom-center",
+      })
+      map.addOverlay(overlay)
+      commentOverlaysRef.current.push(overlay)
+    })
+    return () => {
+      commentOverlaysRef.current.forEach((o) => map.removeOverlay(o))
+      commentOverlaysRef.current = []
+    }
+  }, [mapReady, props.showCommentPins, props.commentPins])
+
+  // Load initial geometry (e.g. request geometry for employee)
+  useEffect(() => {
+    const map = mapRef.current
+    const raw = props.initialGeometry
+    if (!map || !raw || !sourcesRef.current?.polygon) return
+    const normalized =
+      raw?.type === "FeatureCollection"
+        ? raw
+        : raw?.type === "Feature"
+          ? { type: "FeatureCollection" as const, features: [raw] }
+          : null
+    if (!normalized?.features?.length) return
+    const fmt = new GeoJSON()
+    try {
+      normalized.features.forEach((f: any) => {
+        const geom = f.geometry || f
+        const type = geom.type
+        let layerType: LayerType = "polygon"
+        if (type === "Point" || type === "MultiPoint") layerType = "point"
+        else if (type === "LineString" || type === "MultiLineString") layerType = "line"
+        else if (type === "Polygon" || type === "MultiPolygon") layerType = "polygon"
+        else return
+        const featProps = f.properties || {}
+        const olFeat = fmt.readFeature(
+          { type: "Feature", geometry: geom, properties: featProps },
+          { dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" }
+        )
+        if (featProps.label) olFeat.set("label", featProps.label)
+        if (featProps.color) olFeat.set("color", featProps.color)
+        sourcesRef.current[layerType].addFeature(olFeat)
+      })
+      let extent: number[] | null = null
+      ;(["polygon", "line", "point"] as LayerType[]).forEach((lt) => {
+        const ext = sourcesRef.current[lt].getExtent()
+        if (ext.every((n) => isFinite(n))) {
+          extent = extent ? [Math.min(extent[0], ext[0]), Math.min(extent[1], ext[1]), Math.max(extent[2], ext[2]), Math.max(extent[3], ext[3])] : ext
+        }
+      })
+      if (extent) {
+        map.getView().fit(extent, { padding: [40, 40, 40, 40], maxZoom: 18 })
+      }
+    } catch (e) {
+      console.error("[MapApp] Failed to load initial geometry:", e)
+    }
+  }, [props.initialGeometry])
 
   // Helper: update symbology style for selected layer type
   const applyLayerStyle = useCallback(
@@ -250,6 +486,64 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
   useEffect(() => {
     applyLayerStyle(symbolColor, symbolOpacity)
   }, [symbolColor, symbolOpacity, applyLayerStyle])
+
+  // Emit full geometry + takeoff items for parent (e.g. employee save)
+  const emitGeometryChange = useCallback(() => {
+    if (!sourcesRef.current) return
+    const fmt = new GeoJSON()
+    const features: any[] = []
+    const takeoffItems: { id: string; label: string; type: "polygon" | "line" | "point"; area?: number; length?: number; unit: string; color?: string }[] = []
+    const statsByLabel: Record<string, { color: string; area: number; length: number }> = {}
+    let idx = 0
+    ;(["polygon", "line", "point"] as LayerType[]).forEach((layerType) => {
+      sourcesRef.current[layerType].getFeatures().forEach((f: any) => {
+        try {
+          const label = f.get("label") || (layerType === "polygon" ? `Area ${idx + 1}` : layerType === "line" ? `Length ${idx + 1}` : `Point ${idx + 1}`)
+          const color = f.get("color") || "#4a80f5"
+          const obj = fmt.writeFeatureObject(f, {
+            dataProjection: "EPSG:4326",
+            featureProjection: "EPSG:3857",
+          })
+          if (obj) {
+            if (obj.properties) {
+              (obj as any).properties.label = label
+              ;(obj as any).properties.color = color
+            } else {
+              (obj as any).properties = { label, color }
+            }
+            features.push(obj)
+            idx++
+            const geom = f.getGeometry()
+            const type = layerType === "polygon" ? "polygon" : layerType === "line" ? "line" : "point"
+            const unit = layerType === "polygon" ? "sq ft" : layerType === "line" ? "ft" : "count"
+            let area = 0
+            let length = 0
+            if (layerType === "polygon" && geom) {
+              area = Number((getArea(geom) * 10.764).toFixed(2))
+              takeoffItems.push({ id: `map-${idx}`, label, type, area, unit, color })
+            } else if (layerType === "line" && geom) {
+              length = Number((getLength(geom) * 3.281).toFixed(2))
+              takeoffItems.push({ id: `map-${idx}`, label, type, length, unit, color })
+            } else {
+              takeoffItems.push({ id: `map-${idx}`, label, type, unit, color })
+            }
+            if (!statsByLabel[label]) statsByLabel[label] = { color, area: 0, length: 0 }
+            statsByLabel[label].area += area
+            statsByLabel[label].length += length
+          }
+        } catch (_) {}
+      })
+    })
+    props.onGeometryChange?.({ type: "FeatureCollection", features }, takeoffItems)
+    const surfaceStats = Object.entries(statsByLabel).map(([label, v]) => ({
+      label,
+      color: v.color,
+      area: Number(v.area.toFixed(2)),
+      length: v.length ? Number(v.length.toFixed(2)) : undefined,
+    }))
+    props.onSurfaceStats?.(surfaceStats)
+    setSurfaceStats(surfaceStats)
+  }, [props.onGeometryChange, props.onSurfaceStats])
 
   // Tool switching
   const clearInteractions = useCallback(() => {
@@ -341,6 +635,14 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
           map.addInteraction(draw)
 
           draw.on("drawend", (e: any) => {
+            const surface =
+              activeSurfaceRef.current ||
+              props.activeSurface ||
+              surfacesRef.current[0]
+            if (surface) {
+              e.feature.set("label", surface.label)
+              e.feature.set("color", surface.color)
+            }
             // Update stats on active layer item
             setLayers((prev) => {
               const newState = { ...prev }
@@ -373,20 +675,19 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
             })
             setHistoryPointer((p) => p + 1)
 
-            // Emit drawn feature as GeoJSON to parent
+            // Emit drawn feature as GeoJSON (WGS84) so API and admin map can use it
             try {
               const fmt = new GeoJSON()
-              const featureObj = fmt.writeFeatureObject(e.feature)
-              const items=layers?.polygon
-              console.log('layers',layers)
-              console.log('layers',items.map(i=>console.log(i)))
-              console.log('featureInfo',featureInfo,)
-              
+              const featureObj = fmt.writeFeatureObject(e.feature, {
+                dataProjection: "EPSG:4326",
+                featureProjection: "EPSG:3857",
+              })
               props.onFeatureDrawn?.(featureObj)
               setTakeoffarea(featureObj)
             } catch (err) {
               console.error("[v0] Failed to serialize feature:", err)
             }
+            emitGeometryChange()
           })
           break
         }
@@ -419,6 +720,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
         return newState
       })
     })
+    emitGeometryChange()
   })
 
   break
@@ -462,6 +764,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
                 sourcesRef.current[selectedLayerType].removeFeature(f)
               })
             }
+            emitGeometryChange()
             setActiveTool("select")
           })
           break
@@ -491,7 +794,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
           break
       }
     },
-    [clearInteractions, selectedLayerId, selectedLayerType, historyPointer, props],
+    [clearInteractions, selectedLayerId, selectedLayerType, historyPointer, props, emitGeometryChange, activeSurface],
   )
 
   // Undo/Redo
@@ -932,11 +1235,75 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
               </>
             )}
 
-            {props.userRole === "client" && (
-              <>
-                <TakeoffSidebar areaSqft={areaSqft} />
-                
-              </>
+            {(props.userRole === "client" || props.userRole === "employee") && (
+              <TakeoffSidebar
+                areaSqft={areaSqft}
+                takeoffIndustry={props.takeoffIndustry}
+                onTakeoffIndustryChange={props.onTakeoffIndustryChange}
+                selectedFeatures={props.selectedFeatures}
+                onFeaturesChange={props.onFeaturesChange}
+                showSurfacesPanel={props.userRole === "employee"}
+                surfaces={surfaces}
+                activeSurfaceId={activeSurfaceId}
+                onActiveSurfaceChange={(id) => {
+                  setActiveSurfaceId(id)
+                  const s = surfaces.find((surf) => surf.id === id)
+                  if (s) activeSurfaceRef.current = s
+                }}
+                surfaceStats={surfaceStats}
+                onAddSurface={() => {
+                  const id = `surface-${Date.now()}`
+                  const colors = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#78716c"]
+                  const color = colors[surfaces.length % colors.length]
+                  const newSurface = { id, label: "New surface", color }
+                  setSurfaces((prev) => [...prev, newSurface])
+                  setActiveSurfaceId(id)
+                  activeSurfaceRef.current = newSurface
+                }}
+                onRenameSurface={(id, label) => {
+                  setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, label } : s)))
+                }}
+                onRemoveSurface={(id) => {
+                  const surface = surfaces.find((s) => s.id === id)
+                  const labelToDelete = surface?.label
+                  const nextSurfaces = surfaces.filter((s) => s.id !== id)
+                  setSurfaces(nextSurfaces)
+                  if (activeSurfaceId === id && nextSurfaces.length > 0) {
+                    setActiveSurfaceId(nextSurfaces[0].id)
+                    activeSurfaceRef.current = nextSurfaces[0]
+                  } else if (nextSurfaces.length === 0) activeSurfaceRef.current = null
+                  if (labelToDelete) {
+                    setHiddenSurfaceLabels((prev) => prev.filter((l) => l !== labelToDelete))
+                    if (sourcesRef.current) {
+                      ;(["polygon", "line", "point"] as LayerType[]).forEach((layerType) => {
+                        const source = sourcesRef.current[layerType]
+                        const toRemove = source.getFeatures().filter((f: any) => f.get("label") === labelToDelete)
+                        toRemove.forEach((f) => source.removeFeature(f))
+                      })
+                      emitGeometryChange()
+                    }
+                  }
+                }}
+                hiddenSurfaceLabels={hiddenSurfaceLabels}
+                onToggleSurfaceVisibility={(label) => {
+                  setHiddenSurfaceLabels((prev) =>
+                    prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]
+                  )
+                }}
+                surfacesVisible={surfacesVisible}
+                onToggleSurfacesVisibility={(visible) => {
+                  setSurfacesVisible(visible)
+                  if (vectorLayersRef.current) {
+                    vectorLayersRef.current.polygon.setVisible(visible)
+                    vectorLayersRef.current.line.setVisible(visible)
+                    vectorLayersRef.current.point.setVisible(visible)
+                  }
+                }}
+                isClientVariant={props.userRole === "client"}
+                propertyAddress={props.propertyAddress}
+                onPropertyAddressChange={props.onPropertyAddressChange}
+                onNotMyProperty={props.onNotMyProperty}
+              />
             )}
           </div>
         </aside>
@@ -945,7 +1312,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
         {/* Map area */}
         <section className="flex-1 relative">
           <div ref={mapElRef} id="map" className="absolute inset-0" />
-          <Toolbox setActiveTool={setActiveTool} activeTool={tool} />
+          <Toolbox setActiveTool={setActiveTool} activeTool={tool} clientMode={props.userRole === "client"} />
 
 
           {/* Drawing info */}
@@ -1030,6 +1397,33 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
           <div className="absolute bottom-4 left-4 bg-popover text-popover-foreground rounded-md shadow px-3 py-2 text-xs z-10">
             {coordsText}
           </div>
+
+          {/* Locate Me (Attentive OnSite-style) */}
+          {(props.userRole === "client" || props.userRole === "employee") && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="absolute top-4 left-4 z-10 gap-2 shadow-md"
+              onClick={() => {
+                if (!mapRef.current || !navigator.geolocation) return
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    const view = mapRef.current?.getView()
+                    if (view) {
+                      view.setCenter(fromLonLat([pos.coords.longitude, pos.coords.latitude]))
+                      view.setZoom(17)
+                    }
+                    props.onLocateMe?.()
+                  },
+                  () => {},
+                  { enableHighAccuracy: true }
+                )
+              }}
+            >
+              <MapPin className="h-4 w-4" />
+              Locate Me
+            </Button>
+          )}
         </section>
       </div>
     </div>

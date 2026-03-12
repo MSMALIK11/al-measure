@@ -1,17 +1,19 @@
 "use client"
 
+import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Search, Users, FileText } from "lucide-react"
 import Link from "next/link"
 import UserProfileIcon from "../shared/UserProfileIcon"
+import { cn } from "@/lib/utils"
 
 type AdminView = "requests" | "users" | "request-detail"
 
 interface AdminHeaderProps {
   view: AdminView
-  onViewChange: (view: AdminView) => void
+  onViewChange?: (view: AdminView) => void
   searchQuery: string
   onSearchChange: (query: string) => void
   statusFilter: string
@@ -20,66 +22,78 @@ interface AdminHeaderProps {
 
 export function AdminHeader({
   view,
-  onViewChange,
   searchQuery,
   onSearchChange,
   statusFilter,
   onStatusFilterChange,
 }: AdminHeaderProps) {
+  const pathname = usePathname()
+  const isRequests = pathname === "/admin"
+  const isUsers = pathname === "/admin/users"
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="font-bold text-4xl tracking-tight text-balance">Admin Dashboard</h1>
-          <p className="text-muted-foreground mt-2">Manage requests, users, and assignments</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="page-header">
+          <h1 className="page-title">Requests</h1>
+          <p className="page-description">
+            View and manage submitted takeoff requests
+          </p>
         </div>
-        <div>
+        <div className="flex items-center gap-2 shrink-0">
           <UserProfileIcon />
-        <Link href="/">
-          <Button variant="outline">Go to Client View</Button>
-        </Link>
-
+          <Link href="/client">
+            <Button variant="outline" size="sm">
+              Client view
+            </Button>
+          </Link>
         </div>
       </div>
 
-      <div className="flex gap-2">
-        <Button
-          variant={view === "requests" ? "default" : "outline"}
-          onClick={() => onViewChange("requests")}
-          className="gap-2"
-        >
-          <FileText className="h-4 w-4" />
-          Requests
-        </Button>
-        <Button
-          variant={view === "users" ? "default" : "outline"}
-          onClick={() => onViewChange("users")}
-          className="gap-2"
-        >
-          <Users className="h-4 w-4" />
-          Users
-        </Button>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/admin">
+          <Button
+            variant={isRequests ? "default" : "outline"}
+            size="sm"
+            className={cn("gap-2", isRequests && "shadow-sm")}
+          >
+            <FileText className="h-4 w-4" />
+            Requests
+          </Button>
+        </Link>
+        <Link href="/admin/users">
+          <Button
+            variant={isUsers ? "default" : "outline"}
+            size="sm"
+            className={cn("gap-2", isUsers && "shadow-sm")}
+          >
+            <Users className="h-4 w-4" />
+            Users
+          </Button>
+        </Link>
       </div>
 
       {view === "requests" && (
-        <div className="flex gap-4 flex-col sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <Input
-              placeholder="Search requests..."
+              placeholder="Search by title, description, address..."
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-10"
+              className="h-10 pl-9"
             />
           </div>
           <Select value={statusFilter} onValueChange={onStatusFilterChange}>
-            <SelectTrigger className="w-full sm:w-48">
-              <SelectValue placeholder="Filter by status" />
+            <SelectTrigger className="h-10 w-full sm:w-44">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="all">All status</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="in-progress">In Progress</SelectItem>
+              <SelectItem value="pending-qa">Pending QA</SelectItem>
+              <SelectItem value="qa-approved">QA Approved</SelectItem>
+              <SelectItem value="in-progress">In progress</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
             </SelectContent>

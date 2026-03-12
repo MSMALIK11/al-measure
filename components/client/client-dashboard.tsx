@@ -1,35 +1,50 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import type { ServiceRequest } from "@/lib/types"
-import { useStore } from "@/lib/store"
 import { RequestList } from "@/components/request-list"
 import { RequestDetail } from "@/components/request-detail"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { 
-  FileText, 
-  Clock, 
-  CheckCircle2, 
+import {
+  FileText,
+  Clock,
+  CheckCircle2,
   AlertCircle,
   TrendingUp,
   Calendar,
-  RefreshCw
+  RefreshCw,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import http from "@/services/http"
+import { endpoints } from "@/services/modules/endpoints"
+import { toast } from "sonner"
 
 type View = "dashboard" | "request-detail"
 
 export default function ClientDashboard() {
   const [view, setView] = useState<View>("dashboard")
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null)
+  const [requests, setRequests] = useState<ServiceRequest[]>([])
+  const [requestUpdates, setRequestUpdates] = useState<Record<string, { id: string; requestId: string; status: string; message: string; timestamp: string }[]>>({})
+  const [loading, setLoading] = useState(true)
 
-  const { requests, initializeMockData, requestUpdates, updateRequest, addRequestUpdate } = useStore()
+  const fetchRequests = useCallback(async () => {
+    setLoading(true)
+    try {
+      const { data } = await http.get(endpoints.requests, { withCredentials: true })
+      setRequests(data.data || [])
+    } catch (e) {
+      toast.error("Failed to load requests")
+      setRequests([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
-  // Load requests on mount
   useEffect(() => {
-    initializeMockData()
-  }, [initializeMockData])
+    fetchRequests()
+  }, [fetchRequests])
 
   const handleSelectRequest = (requestId: string) => {
     setSelectedRequestId(requestId)
@@ -41,37 +56,56 @@ export default function ClientDashboard() {
     setSelectedRequestId(null)
   }
 
-  const handleUpdateStatus = (status: ServiceRequest["status"]) => {
+  const statusMessages: Record<string, string> = {
+    pending: "Request status changed to pending",
+    "pending-qa": "Submitted for QA review",
+    "qa-approved": "QA approved",
+    "in-progress": "Request is now being processed",
+    completed: "Request has been completed successfully",
+    cancelled: "Request has been cancelled",
+  }
+
+  const handleUpdateStatus = async (status: ServiceRequest["status"]) => {
     if (!selectedRequestId) return
-
-    const statusMessages = {
-      pending: "Request status changed to pending",
-      "in-progress": "Request is now being processed",
-      completed: "Request has been completed successfully",
-      cancelled: "Request has been cancelled",
+    try {
+      await http.put(endpoints.requestById(selectedRequestId), { status }, { withCredentials: true })
+      setRequests((prev) =>
+        prev.map((r) => (r.id === selectedRequestId ? { ...r, status, updatedAt: new Date().toISOString() } : r))
+      )
+      setRequestUpdates((prev) => ({
+        ...prev,
+        [selectedRequestId]: [
+          ...(prev[selectedRequestId] || []),
+          {
+            id: `update-${Date.now()}`,
+            requestId: selectedRequestId,
+            status,
+            message: statusMessages[status] || `Status changed to ${status}`,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      }))
+      toast.success("Status updated")
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || "Failed to update status")
     }
+  }
 
-    updateRequest(selectedRequestId, { status })
-    addRequestUpdate(selectedRequestId, {
-      id: `update-${Date.now()}`,
-      requestId: selectedRequestId,
-      status,
-      message: statusMessages[status],
-      timestamp: new Date().toISOString(),
-    })
+  const handleRequestUpdated = (updated: ServiceRequest) => {
+    setRequests((prev) => prev.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)))
   }
 
   const handleRefresh = () => {
-    initializeMockData()
+    fetchRequests()
   }
 
   const selectedRequest = selectedRequestId ? requests.find((r) => r.id === selectedRequestId) : null
   const updates = selectedRequestId ? requestUpdates[selectedRequestId] || [] : []
 
-  // Calculate statistics
+  // Calculate statistics (include QA statuses)
   const stats = {
     total: requests.length,
-    pending: requests.filter((r) => r.status === "pending").length,
+    pending: requests.filter((r) => r.status === "pending" || r.status === "pending-qa" || r.status === "qa-approved").length,
     inProgress: requests.filter((r) => r.status === "in-progress").length,
     completed: requests.filter((r) => r.status === "completed").length,
   }
@@ -225,11 +259,14 @@ export default function ClientDashboard() {
                 </div>
               </div>
 
-              {/* Request List Table - NOT CHANGED */}
-              <RequestList 
-                requests={requests} 
-                onSelectRequest={handleSelectRequest} 
-              />
+              {loading ? (
+                <p className="text-sm text-muted-foreground">Loading requests…</p>
+              ) : (
+                <RequestList
+                  requests={requests}
+                  onSelectRequest={handleSelectRequest}
+                />
+              )}
             </div>
           </>
         )}
@@ -240,6 +277,7 @@ export default function ClientDashboard() {
             updates={updates}
             onBack={handleBackToDashboard}
             onUpdateStatus={handleUpdateStatus}
+            onRequestUpdated={handleRequestUpdated}
           />
         )}
       </div>

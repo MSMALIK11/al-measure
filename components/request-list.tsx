@@ -32,14 +32,30 @@ interface RequestListProps {
   onSelectRequest: (requestId: string) => void
 }
 
-const statusConfig = {
-  pending: { 
-    label: "Pending", 
+const statusConfig: Record<string, { label: string; color: string; textColor: string; bgColor: string; borderColor: string; dotColor: string }> = {
+  pending: {
+    label: "Pending",
     color: "bg-yellow-500 dark:bg-yellow-600",
     textColor: "text-yellow-700 dark:text-yellow-300",
     bgColor: "bg-yellow-50 dark:bg-yellow-950",
     borderColor: "border-yellow-200 dark:border-yellow-800",
-    dotColor: "bg-yellow-500"
+    dotColor: "bg-yellow-500",
+  },
+  "pending-qa": {
+    label: "Pending QA",
+    color: "bg-amber-500 dark:bg-amber-600",
+    textColor: "text-amber-700 dark:text-amber-300",
+    bgColor: "bg-amber-50 dark:bg-amber-950",
+    borderColor: "border-amber-200 dark:border-amber-800",
+    dotColor: "bg-amber-500",
+  },
+  "qa-approved": {
+    label: "QA Approved",
+    color: "bg-teal-500 dark:bg-teal-600",
+    textColor: "text-teal-700 dark:text-teal-300",
+    bgColor: "bg-teal-50 dark:bg-teal-950",
+    borderColor: "border-teal-200 dark:border-teal-800",
+    dotColor: "bg-teal-500",
   },
   "in-progress": { 
     label: "In Progress", 
@@ -233,8 +249,15 @@ export function RequestList({ requests, onSelectRequest }: RequestListProps) {
                 </TableRow>
               ) : (
                 filteredRequests.map((request) => {
-                  const statusInfo = statusConfig[request.status]
-                  const priorityInfo = priorityConfig[request.priority]
+                  const statusInfo = statusConfig[request.status] || {
+                    label: request.status,
+                    color: "bg-gray-500",
+                    textColor: "text-gray-700 dark:text-gray-300",
+                    bgColor: "bg-gray-50 dark:bg-gray-950",
+                    borderColor: "border-gray-200 dark:border-gray-800",
+                    dotColor: "bg-gray-500",
+                  }
+                  const priorityInfo = priorityConfig[request.priority] || { label: request.priority, color: "" }
                   
                   return (
                     <TableRow

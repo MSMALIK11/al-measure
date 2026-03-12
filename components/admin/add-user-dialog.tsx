@@ -3,7 +3,6 @@
 import type React from "react"
 
 import { useState } from "react"
-import { useStore } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -17,36 +16,54 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { UserRole } from "@/lib/types"
+import http from "@/services/http"
+import { endpoints } from "@/services/modules/endpoints"
+import { toast } from "sonner"
+import { Loader2 } from "lucide-react"
 
 interface AddUserDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onSuccess?: () => void
 }
 
-export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
-  const { addUser } = useStore()
+export function AddUserDialog({ open, onOpenChange, onSuccess }: AddUserDialogProps) {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    password: "",
     role: "employee" as UserRole,
   })
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
-    const newUser = {
-      id: `user-${Date.now()}`,
-      name: formData.name,
-      email: formData.email,
-      role: formData.role,
-      status: "available" as const,
-      assignedRequestIds: [],
-      createdAt: new Date().toISOString(),
+    if (!formData.password || formData.password.length < 8) {
+      toast.error("Password must be at least 8 characters with uppercase, lowercase, and a number")
+      return
     }
-
-    addUser(newUser)
-    onOpenChange(false)
-    setFormData({ name: "", email: "", role: "employee" })
+    setLoading(true)
+    try {
+      await http.post(
+        endpoints.users,
+        {
+          name: formData.name.trim(),
+          email: formData.email.trim(),
+          password: formData.password,
+          role: formData.role,
+        },
+        { withCredentials: true }
+      )
+      toast.success("User added successfully")
+      onOpenChange(false)
+      setFormData({ name: "", email: "", password: "", role: "employee" })
+      onSuccess?.()
+    } catch (err: any) {
+      const msg = err?.response?.data?.error ?? err?.response?.data?.details?.[0]?.message ?? "Failed to add user"
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -80,6 +97,18 @@ export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="Min 8 chars, 1 upper, 1 lower, 1 number"
+                required
+                minLength={8}
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="role">Role</Label>
               <Select
                 value={formData.role}
@@ -90,16 +119,19 @@ export function AddUserDialog({ open, onOpenChange }: AddUserDialogProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="employee">Employee</SelectItem>
+                  <SelectItem value="qa">QA</SelectItem>
                   <SelectItem value="admin">Administrator</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Cancel
             </Button>
-            <Button type="submit">Add User</Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add User"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { LucideIcon, LogOut, ChevronRight, Menu, X } from "lucide-react"
+import { LucideIcon, LogOut, ChevronRight, Menu, X, ExternalLink } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
@@ -56,9 +56,9 @@ export default function Sidebar({
     <>
       {/* Mobile Menu Button */}
       <Button
-        variant="ghost"
+        variant="outline"
         size="icon"
-        className="fixed top-4 left-4 z-50 lg:hidden bg-white dark:bg-gray-900 shadow-md"
+        className="fixed top-4 left-4 z-50 lg:hidden bg-card border-border shadow-md"
         onClick={() => setIsOpen(!isOpen)}
       >
         {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -75,26 +75,27 @@ export default function Sidebar({
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed lg:sticky top-0 left-0 z-40 h-screen w-72 bg-white dark:bg-gray-950 border-r border-gray-200 dark:border-gray-800 flex flex-col transition-transform duration-300",
+          "fixed lg:sticky top-0 left-0 z-40 h-screen w-64 flex flex-col transition-transform duration-200 ease-out",
+          "bg-sidebar text-sidebar-foreground border-r border-sidebar-border",
           isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
         {/* Header */}
-        <div className="p-6 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-3 mb-2">
-            <Image 
-              src="/brand_logo.png" 
-              alt="Al Measure" 
-              width={48} 
-              height={48}
-              className="rounded-lg"
+        <div className="shrink-0 px-5 py-5 border-b border-sidebar-border">
+          <div className="flex items-center gap-3">
+            <Image
+              src="/brand_logo.png"
+              alt="Al Measure"
+              width={40}
+              height={40}
+              className="rounded-lg shrink-0"
             />
-            <div className="flex-1">
-              <h1 className="text-lg font-bold text-gray-900 dark:text-white">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base font-semibold truncate">
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-xs text-gray-500 dark:text-gray-400">
+                <p className="text-xs text-sidebar-foreground/70 truncate">
                   {subtitle}
                 </p>
               )}
@@ -103,7 +104,7 @@ export default function Sidebar({
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-1">
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
           {navItems.map((item) => {
             const isActive = isItemActive(item.href)
             const hasSubItems = item.subItems && item.subItems.length > 0
@@ -116,24 +117,21 @@ export default function Sidebar({
                     variant="ghost"
                     onClick={() => toggleExpanded(item.name)}
                     className={cn(
-                      "w-full justify-start gap-3 px-3 py-2.5 h-auto font-medium transition-all",
+                      "w-full justify-start gap-3 px-3 py-2.5 h-auto text-sm font-medium rounded-lg transition-colors",
                       isActive
-                        ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400"
-                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900"
+                        ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                        : "text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     )}
                   >
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    <span className="flex-1 text-left text-sm">{item.name}</span>
-                    {item.badge && (
-                      <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-500 text-white">
+                    <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                    <span className="flex-1 text-left">{item.name}</span>
+                    {item.badge != null && (
+                      <span className="min-w-[1.25rem] py-0.5 text-xs font-medium rounded-full bg-destructive/90 text-destructive-foreground text-center">
                         {item.badge}
                       </span>
                     )}
                     <ChevronRight
-                      className={cn(
-                        "w-4 h-4 transition-transform",
-                        isExpanded && "rotate-90"
-                      )}
+                      className={cn("h-4 w-4 shrink-0 opacity-70 transition-transform", isExpanded && "rotate-90")}
                     />
                   </Button>
                 ) : (
@@ -141,44 +139,39 @@ export default function Sidebar({
                     <Button
                       variant="ghost"
                       className={cn(
-                        "w-full justify-start gap-3 px-3 py-2.5 h-auto font-medium transition-all",
+                        "w-full justify-start gap-3 px-3 py-2.5 h-auto text-sm font-medium rounded-lg relative transition-colors",
                         isActive
-                          ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400 shadow-sm"
-                          : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900"
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground/90 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                       )}
                     >
-                      <item.icon className="w-5 h-5 flex-shrink-0" />
-                      <span className="flex-1 text-left text-sm">{item.name}</span>
-                      {item.badge && (
-                        <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-500 text-white">
+                      <item.icon className="h-4 w-4 shrink-0 opacity-90" />
+                      <span className="flex-1 text-left">{item.name}</span>
+                      {item.badge != null && (
+                        <span className="min-w-[1.25rem] py-0.5 text-xs font-medium rounded-full bg-destructive/90 text-destructive-foreground text-center">
                           {item.badge}
                         </span>
                       )}
                       {isActive && (
-                        <div className="w-1 h-6 bg-blue-600 dark:bg-blue-400 rounded-full absolute right-0" />
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-sidebar-primary rounded-r-full" />
                       )}
                     </Button>
                   </Link>
                 )}
 
-                {/* Sub Items */}
                 {hasSubItems && isExpanded && (
-                  <div className="ml-8 mt-1 space-y-1">
+                  <div className="ml-4 mt-0.5 pl-3 border-l border-sidebar-border space-y-0.5">
                     {item.subItems?.map((subItem) => {
                       const isSubActive = pathname === subItem.href
                       return (
-                        <Link
-                          key={subItem.name}
-                          href={subItem.href}
-                          onClick={() => setIsOpen(false)}
-                        >
+                        <Link key={subItem.name} href={subItem.href} onClick={() => setIsOpen(false)}>
                           <Button
                             variant="ghost"
                             className={cn(
-                              "w-full justify-start px-3 py-2 h-auto text-sm transition-all",
+                              "w-full justify-start px-3 py-2 h-auto text-sm rounded-md transition-colors",
                               isSubActive
-                                ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50"
-                                : "text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-900/50"
+                                ? "text-sidebar-primary font-medium bg-sidebar-accent/50"
+                                : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
                             )}
                           >
                             {subItem.name}
@@ -194,43 +187,42 @@ export default function Sidebar({
         </nav>
 
         {/* Footer */}
-        <div className="border-t border-gray-200 dark:border-gray-800">
-          {/* User Info */}
+        <div className="shrink-0 border-t border-sidebar-border">
           {userInfo && (
-            <div className="p-4 border-b border-gray-200 dark:border-gray-800">
+            <div className="p-4 border-b border-sidebar-border">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold">
+                <div className="h-9 w-9 shrink-0 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground text-sm font-semibold">
                   {userInfo.name.charAt(0).toUpperCase()}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                    {userInfo.name}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {userInfo.email}
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{userInfo.name}</p>
+                  <p className="text-xs text-sidebar-foreground/70 truncate">{userInfo.email}</p>
                 </div>
               </div>
-              <div className="mt-2">
-                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 capitalize">
-                  {userInfo.role}
-                </span>
-              </div>
+              <span className="mt-2 inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-sidebar-accent/50 text-sidebar-accent-foreground capitalize">
+                {userInfo.role}
+              </span>
             </div>
           )}
-
-          {/* Theme Toggle & Logout */}
-          <div className="p-4 space-y-2">
+          <div className="p-3 space-y-1">
+            <a
+              href="https://arshionixsolutions.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50 transition-colors"
+            >
+              <span>Powered by Arshionix Solutions</span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            </a>
             <ThemeToggle />
-            
             {logout && (
               <Button
                 variant="ghost"
                 onClick={logout}
-                className="w-full justify-start gap-3 px-3 py-2.5 h-auto text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/50 font-medium transition-all"
+                className="w-full justify-start gap-3 px-3 py-2.5 h-auto text-sm font-medium rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
-                <LogOut className="w-5 h-5" />
-                <span className="text-sm">Sign Out</span>
+                <LogOut className="h-4 w-4 shrink-0" />
+                Sign out
               </Button>
             )}
           </div>

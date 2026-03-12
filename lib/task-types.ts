@@ -6,7 +6,7 @@ export type RequestCategory =
   | "consultation"
   | "other"
 
-export type UserRole = "admin" | "employee" | "client"
+export type UserRole = "admin" | "employee" | "client" | "qa"
 export type UserStatus = "available" | "busy" | "offline"
 export type RequestPriority = "low" | "medium" | "high" | "urgent"
 export interface User {

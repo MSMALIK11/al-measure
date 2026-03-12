@@ -5,21 +5,28 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft, Calendar, Clock, MapPin, User, Mail, FileText, AlertCircle } from "lucide-react"
+import { ArrowLeft, Calendar, Clock, MapPin, User, Mail, FileText, AlertCircle, Download, Share2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { downloadCSV, printRequest } from "@/lib/export-utils"
+import { toast } from "sonner"
+import http from "@/services/http"
+import { endpoints } from "@/services/modules/endpoints"
 
 interface RequestDetailProps {
   request: ServiceRequest
   updates: RequestUpdate[]
   onBack: () => void
   onUpdateStatus: (status: ServiceRequest["status"]) => void
+  onRequestUpdated?: (request: ServiceRequest) => void
 }
 
-const statusColors = {
-  pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  "in-progress": "bg-blue-100 text-blue-800 border-blue-200",
-  completed: "bg-green-100 text-green-800 border-green-200",
-  cancelled: "bg-gray-100 text-gray-800 border-gray-200",
+const statusColors: Record<string, string> = {
+  pending: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-200",
+  "pending-qa": "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-200",
+  "qa-approved": "bg-teal-100 text-teal-800 border-teal-200 dark:bg-teal-900/30 dark:text-teal-200",
+  "in-progress": "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-200",
+  completed: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-200",
+  cancelled: "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/30 dark:text-gray-200",
 }
 
 const priorityColors = {
@@ -29,15 +36,32 @@ const priorityColors = {
   urgent: "bg-red-100 text-red-700 border-red-200",
 }
 
-const categoryLabels = {
+const categoryLabels: Record<string, string> = {
   "landscape-measurement": "Landscape Measurement",
   "property-assessment": "Property Assessment",
   "maintenance-request": "Maintenance Request",
   consultation: "Consultation",
+  paving: "Paving",
+  "snow-removal": "Snow Removal",
+  irrigation: "Irrigation",
+  hardscape: "Hardscape",
   other: "Other",
 }
 
-export function RequestDetail({ request, updates, onBack, onUpdateStatus }: RequestDetailProps) {
+export function RequestDetail({ request, updates, onBack, onUpdateStatus, onRequestUpdated }: RequestDetailProps) {
+  const handleExportPDF = () => printRequest(request)
+  const handleExportCSV = () => downloadCSV(request)
+  const handleShareLink = async () => {
+    try {
+      const { data } = await http.post(endpoints.requestShare(request.id!), {}, { withCredentials: true })
+      const url = data.shareUrl || `${typeof window !== "undefined" ? window.location.origin : ""}/share/${data.shareToken}`
+      await navigator.clipboard.writeText(url)
+      toast.success("Share link copied to clipboard")
+      if (onRequestUpdated && data.data) onRequestUpdated({ ...request, shareToken: data.shareToken })
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error || "Failed to create share link")
+    }
+  }
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
     return date.toLocaleDateString("en-GB", {
@@ -113,6 +137,41 @@ export function RequestDetail({ request, updates, onBack, onUpdateStatus }: Requ
                       Additional Notes
                     </h3>
                     <p className="text-muted-foreground leading-relaxed">{request.notes}</p>
+                  </div>
+                </>
+              )}
+
+              {/* Takeoff items (Attentive-style measurements) */}
+              {(request.takeoffItems?.length ?? 0) > 0 && (
+                <>
+                  <Separator />
+                  <div className="space-y-2">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <FileText className="h-4 w-4" />
+                      Takeoff Summary
+                    </h3>
+                    <div className="rounded-md border overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-muted/50">
+                            <th className="text-left p-2">Label</th>
+                            <th className="text-left p-2">Type</th>
+                            <th className="text-right p-2">Area (sq ft)</th>
+                            <th className="text-right p-2">Length (ft)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {request.takeoffItems!.map((item) => (
+                            <tr key={item.id} className="border-t">
+                              <td className="p-2">{item.label}</td>
+                              <td className="p-2">{item.type}</td>
+                              <td className="p-2 text-right">{item.area ?? ""}</td>
+                              <td className="p-2 text-right">{item.length ?? ""}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </>
               )}
@@ -247,7 +306,28 @@ export function RequestDetail({ request, updates, onBack, onUpdateStatus }: Requ
             </CardContent>
           </Card>
 
-          {/* Quick Actions */}
+          {/* Export & Share (Attentive-style bid-ready outputs) */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Export & Share</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button variant="outline" className="w-full justify-start gap-2" onClick={handleExportPDF}>
+                <Download className="h-4 w-4" />
+                Export as PDF
+              </Button>
+              <Button variant="outline" className="w-full justify-start gap-2" onClick={handleExportCSV}>
+                <Download className="h-4 w-4" />
+                Export as CSV / Excel
+              </Button>
+              <Button variant="outline" className="w-full justify-start gap-2" onClick={handleShareLink}>
+                <Share2 className="h-4 w-4" />
+                {request.shareToken ? "Copy share link" : "Create share link"}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions & QA workflow */}
           {request.status !== "completed" && request.status !== "cancelled" && (
             <Card>
               <CardHeader>
@@ -255,15 +335,33 @@ export function RequestDetail({ request, updates, onBack, onUpdateStatus }: Requ
               </CardHeader>
               <CardContent className="space-y-2">
                 {request.status === "pending" && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="w-full bg-transparent"
+                      onClick={() => onUpdateStatus("pending-qa")}
+                    >
+                      Submit for QA Review
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="w-full bg-transparent"
+                      onClick={() => onUpdateStatus("in-progress")}
+                    >
+                      Mark as In Progress
+                    </Button>
+                  </>
+                )}
+                {request.status === "pending-qa" && (
                   <Button
                     variant="outline"
                     className="w-full bg-transparent"
-                    onClick={() => onUpdateStatus("in-progress")}
+                    onClick={() => onUpdateStatus("qa-approved")}
                   >
-                    Mark as In Progress
+                    QA Approved
                   </Button>
                 )}
-                {/* {request.status === "in-progress" && (
+                {(request.status === "qa-approved" || request.status === "in-progress") && (
                   <Button
                     variant="outline"
                     className="w-full bg-transparent"
@@ -271,7 +369,7 @@ export function RequestDetail({ request, updates, onBack, onUpdateStatus }: Requ
                   >
                     Mark as Completed
                   </Button>
-                )} */}
+                )}
                 <Button
                   variant="outline"
                   className="w-full text-destructive hover:text-destructive bg-transparent"
