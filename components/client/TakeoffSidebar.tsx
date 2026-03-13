@@ -131,6 +131,7 @@ export default function TakeoffSidebar({
   onAddSurface,
   onRenameSurface,
   onRemoveSurface,
+  onSurfaceColorChange,
   hiddenSurfaceLabels = [],
   onToggleSurfaceVisibility,
   showSurfacesPanel = false,
@@ -153,6 +154,7 @@ export default function TakeoffSidebar({
   onAddSurface?: () => void;
   onRenameSurface?: (id: string, label: string) => void;
   onRemoveSurface?: (id: string) => void;
+  onSurfaceColorChange?: (id: string, color: string) => void;
   hiddenSurfaceLabels?: string[];
   onToggleSurfaceVisibility?: (label: string) => void;
   showSurfacesPanel?: boolean;
@@ -236,15 +238,11 @@ export default function TakeoffSidebar({
           </div>
         </div>
 
-        {/* Lot Area: green bar + eye + value */}
+        {/* Lot Area: green bar + value */}
         <div className="px-5 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-1.5 h-10 rounded-full bg-emerald-500 shrink-0" aria-hidden />
-            <div className="flex items-center gap-2 flex-1 min-w-0">
-              <Eye className="h-4 w-4 text-muted-foreground shrink-0" />
-              <span className="text-sm font-medium text-foreground">Lot Area</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-foreground">Lot Area</span>
+            <div className="flex items-center gap-2">
               <span className="text-lg font-semibold tabular-nums">{displayValue}</span>
               <Select value={unit} onValueChange={(v: "sqft" | "acres") => setUnit(v)}>
                 <SelectTrigger className="w-[72px] h-7 text-xs border-border">
@@ -257,6 +255,93 @@ export default function TakeoffSidebar({
               </Select>
             </div>
           </div>
+        </div>
+
+        {/* Surfaces / Property features: show-hide + list with area analysis */}
+        <div className="px-5 py-3 border-b border-border shrink-0 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-muted-foreground">Zones</span>
+            <Badge variant="secondary">{surfaces?.length ?? 0}</Badge>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-sm font-medium">Show/Hide all property-features</Label>
+            {onToggleSurfacesVisibility && (
+              <Switch
+                checked={surfacesVisible}
+                onCheckedChange={onToggleSurfacesVisibility}
+                aria-label="Show or hide all property features on map"
+              />
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+            <span>Surfaces</span>
+            <span>Area (sqft)</span>
+          </div>
+          {activeSurfaceId && (surfaces ?? []).length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Drawing as: <span className="font-medium text-foreground">{(surfaces ?? []).find((s) => s.id === activeSurfaceId)?.label ?? "—"}</span>
+            </p>
+          )}
+          <div className="space-y-1.5 max-h-[200px] overflow-y-auto pr-1">
+            {(surfaces ?? []).map((s) => {
+              const stat = surfaceStats?.find((st) => st.label === s.label)
+              const area = stat?.area ?? 0
+              const isActive = activeSurfaceId === s.id
+              const isHidden = hiddenSurfaceLabels?.includes(s.label)
+              return (
+                <div
+                  key={s.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onActiveSurfaceChange?.(s.id)}
+                  onKeyDown={(e) => e.key === "Enter" && onActiveSurfaceChange?.(s.id)}
+                  className={cn(
+                    "flex items-center gap-2 p-2 rounded-lg border transition-colors cursor-pointer",
+                    isActive ? "border-primary bg-primary/10 ring-1 ring-primary/20" : "border-border hover:bg-muted/50",
+                    isHidden && "opacity-60"
+                  )}
+                >
+                  <input
+                    type="color"
+                    value={s.color}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      onSurfaceColorChange?.(s.id, e.target.value)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-6 h-6 rounded cursor-pointer border border-border shrink-0"
+                    title="Change color"
+                  />
+                  <span className="text-sm font-medium truncate flex-1">{s.label}</span>
+                  <span className="text-sm tabular-nums shrink-0">{area.toLocaleString()}</span>
+                  {onToggleSurfaceVisibility && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onToggleSurfaceVisibility(s.label)
+                      }}
+                      title={isHidden ? `Show ${s.label}` : `Hide ${s.label}`}
+                      aria-label={isHidden ? `Show ${s.label}` : `Hide ${s.label}`}
+                    >
+                      {isHidden ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {onAddSurface && (
+            <Button variant="outline" size="sm" className="w-full" onClick={onAddSurface}>
+              Add a new group of property-features
+            </Button>
+          )}
         </div>
 
         {/* Orange disclaimer */}
@@ -450,11 +535,25 @@ export default function TakeoffSidebar({
                       isHidden && "opacity-60"
                     )}
                   >
-                    <div
-                      className="w-6 h-6 rounded shrink-0 border-2 border-white shadow-sm"
-                      style={{ backgroundColor: s.color }}
-                      title={`${s.label} – same color on map`}
-                    />
+                    {onSurfaceColorChange ? (
+                      <input
+                        type="color"
+                        value={s.color}
+                        onChange={(e) => {
+                          e.stopPropagation()
+                          onSurfaceColorChange(s.id, e.target.value)
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="w-6 h-6 rounded cursor-pointer border-2 border-white shadow-sm shrink-0"
+                        title="Change color – shapes on map update with transparent fill"
+                      />
+                    ) : (
+                      <div
+                        className="w-6 h-6 rounded shrink-0 border-2 border-white shadow-sm"
+                        style={{ backgroundColor: s.color }}
+                        title={`${s.label} – same color on map`}
+                      />
+                    )}
                     {isEditing ? (
                       <Input
                         ref={surfaceInputRef}
@@ -503,7 +602,7 @@ export default function TakeoffSidebar({
                         className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
                         onClick={(e) => {
                           e.stopPropagation()
-                          if (confirm(`Delete "${s.label}" and all its shapes on the map?`)) onRemoveSurface(s.id)
+                          onRemoveSurface(s.id)
                         }}
                         title="Delete surface and all its shapes"
                         aria-label="Delete surface"

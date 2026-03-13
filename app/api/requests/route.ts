@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import connectDB from "../db/mongoose";
 import Request from "./request.schema";
+import { addCors, corsPreflight } from "@/lib/cors";
 
 export async function GET(request: NextRequest) {
   try {
@@ -56,15 +57,19 @@ export async function GET(request: NextRequest) {
       updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt,
     }));
 
-    return NextResponse.json({
+    return addCors(request, NextResponse.json({
       success: true,
       data: requests,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
-    });
+    }));
   } catch (error: any) {
     console.error("GET /api/requests error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflight(request);
 }
 
 export async function POST(request: NextRequest) {
@@ -91,10 +96,10 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!title || !description || !category || !geometry) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         { success: false, error: "Missing required fields: title, description, category, geometry" },
         { status: 400 }
-      );
+      ));
     }
 
     const doc = await Request.create({
@@ -117,7 +122,7 @@ export async function POST(request: NextRequest) {
     });
 
     const r = doc.toObject();
-    return NextResponse.json({
+    return addCors(request, NextResponse.json({
       success: true,
       data: {
         id: r._id.toString(),
@@ -142,9 +147,9 @@ export async function POST(request: NextRequest) {
         createdAt: r.createdAt?.toISOString?.() || r.createdAt,
         updatedAt: r.updatedAt?.toISOString?.() || r.updatedAt,
       },
-    });
+    }));
   } catch (error: any) {
     console.error("POST /api/requests error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
 }

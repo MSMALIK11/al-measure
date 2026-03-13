@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import User from "../../modules/user.schema";
 import connectDB from "../../db/mongoose";
 import { loginSchema } from "../validators";
+import { addCors, corsPreflight } from "@/lib/cors";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thisismeshoaibfuturebillionaire";
 
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     // Validate request body
     const validation = loginSchema.safeParse(body);
     if (!validation.success) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         {
           error: "Validation failed",
           details: validation.error.errors.map((err) => ({
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
           })),
         },
         { status: 400 }
-      );
+      ));
     }
 
     const { email, password } = validation.data;
@@ -34,19 +35,19 @@ export async function POST(request: NextRequest) {
     const user = await User.findOne({ email });
 
     if (!user) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
-      );
+      ));
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         { error: "Invalid email or password" },
         { status: 401 }
-      );
+      ));
     }
 
     // Create JWT token
@@ -81,12 +82,16 @@ export async function POST(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
     });
 
-    return response;
+    return addCors(request, response);
   } catch (error: any) {
     console.error("Login error:", error);
-    return NextResponse.json(
+    return addCors(request, NextResponse.json(
       { error: "An error occurred during login. Please try again." },
       { status: 500 }
-    );
+    ));
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflight(request);
 }

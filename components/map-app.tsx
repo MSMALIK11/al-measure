@@ -152,10 +152,13 @@ export default function MapApp(props: MapAppProps) {
   const [hiddenSurfaceLabels, setHiddenSurfaceLabels] = useState<string[]>([])
   const highlightedSurfaceLabelRef = useRef<string | null>(null)
   const hiddenSurfaceLabelsRef = useRef<Set<string>>(new Set())
+  const surfacesVisibleRef = useRef(true)
   /** Ref so drawend always uses the currently selected surface (avoids stale closure). */
   const activeSurfaceRef = useRef<{ id: string; label: string; color: string } | null>(
     surfaces.find((s) => s.id === activeSurfaceId) || surfaces[0] || null
   )
+  const activeSurfaceIdRef = useRef<string>(activeSurfaceId)
+  activeSurfaceIdRef.current = activeSurfaceId
   const surfacesRef = useRef(surfaces)
   surfacesRef.current = surfaces
   // OL refs (initialized after OL loads)
@@ -266,6 +269,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
       })
     }
     const vectorStyleWithHighlight = (f: any, layerType: LayerType) => {
+      if (!surfacesVisibleRef.current) return null
       const label = f.get("label") || ""
       if (hiddenSurfaceLabelsRef.current.has(label)) return null
       const highlight = highlightedSurfaceLabelRef.current === label
@@ -335,7 +339,8 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
   // Keep activeSurfaceRef in sync so drawend always uses the selected surface
   useEffect(() => {
     activeSurfaceRef.current = activeSurface ?? null
-  }, [activeSurface])
+    activeSurfaceIdRef.current = activeSurfaceId
+  }, [activeSurface, activeSurfaceId])
 
   // Sync highlighted surface (sidebar selection) → ref and redraw shapes
   useEffect(() => {
@@ -348,7 +353,7 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
     }
   }, [activeSurface?.label])
 
-  // Sync hidden surface labels → ref and redraw shapes
+  // Sync hidden surface labels → ref and force layer re-render so style (hide) is applied
   useEffect(() => {
     hiddenSurfaceLabelsRef.current = new Set(hiddenSurfaceLabels)
     if (sourcesRef.current) {
@@ -356,7 +361,27 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
       sourcesRef.current.line.changed()
       sourcesRef.current.point.changed()
     }
+    if (vectorLayersRef.current) {
+      vectorLayersRef.current.polygon.changed()
+      vectorLayersRef.current.line.changed()
+      vectorLayersRef.current.point.changed()
+    }
   }, [hiddenSurfaceLabels])
+
+  // Sync show/hide all → ref and redraw so style returns null when hidden
+  useEffect(() => {
+    surfacesVisibleRef.current = surfacesVisible
+    if (sourcesRef.current) {
+      sourcesRef.current.polygon.changed()
+      sourcesRef.current.line.changed()
+      sourcesRef.current.point.changed()
+    }
+    if (vectorLayersRef.current) {
+      vectorLayersRef.current.polygon.setVisible(surfacesVisible)
+      vectorLayersRef.current.line.setVisible(surfacesVisible)
+      vectorLayersRef.current.point.setVisible(surfacesVisible)
+    }
+  }, [surfacesVisible])
 
   // Comment pins (QA feedback on map) – employee can show/hide
   useEffect(() => {
@@ -543,7 +568,9 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
     }))
     props.onSurfaceStats?.(surfaceStats)
     setSurfaceStats(surfaceStats)
-  }, [props.onGeometryChange, props.onSurfaceStats])
+    const totalArea = surfaceStats.reduce((sum, s) => sum + s.area, 0)
+    if (totalArea > 0) props.getAreaSqft?.(String(Math.round(totalArea)))
+  }, [props.onGeometryChange, props.onSurfaceStats, props.getAreaSqft])
 
   // Tool switching
   const clearInteractions = useCallback(() => {
@@ -629,16 +656,24 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
         case "polygon":
         case "line":
         case "point": {
+          // Re-sync active surface from current selection so this draw uses the right label/color
+          const currentId = activeSurfaceIdRef.current
+          activeSurfaceRef.current =
+            surfacesRef.current.find((s) => s.id === currentId) ??
+            surfacesRef.current?.[0] ??
+            null
+
           const type = t === "polygon" ? "Polygon" : t === "line" ? "LineString" : "Point"
           const draw = new Draw({ source, type })
           drawRef.current = draw
           map.addInteraction(draw)
 
           draw.on("drawend", (e: any) => {
+            const selectedId = activeSurfaceIdRef.current
             const surface =
-              activeSurfaceRef.current ||
-              props.activeSurface ||
-              surfacesRef.current[0]
+              surfacesRef.current?.find((s) => s.id === selectedId) ??
+              activeSurfaceRef.current ??
+              surfacesRef.current?.[0]
             if (surface) {
               e.feature.set("label", surface.label)
               e.feature.set("color", surface.color)
@@ -1028,7 +1063,6 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
       (item.type === "polygon" && (item.id === "parcels" || item.id === "water")) ||
       (item.type === "line" && (item.id === "roads" || item.id === "rivers")) ||
       (item.type === "point" && (item.id === "landmarks" || item.id === "schools"))
-    if (!confirm(`Delete layer "${item.name}"?`)) return
     sourcesRef.current[item.type]?.clear()
     setLayers((prev) => {
       const newState = { ...prev }
@@ -1242,12 +1276,12 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
                 onTakeoffIndustryChange={props.onTakeoffIndustryChange}
                 selectedFeatures={props.selectedFeatures}
                 onFeaturesChange={props.onFeaturesChange}
-                showSurfacesPanel={props.userRole === "employee"}
+                showSurfacesPanel={true}
                 surfaces={surfaces}
                 activeSurfaceId={activeSurfaceId}
                 onActiveSurfaceChange={(id) => {
                   setActiveSurfaceId(id)
-                  const s = surfaces.find((surf) => surf.id === id)
+                  const s = surfacesRef.current.find((surf) => surf.id === id)
                   if (s) activeSurfaceRef.current = s
                 }}
                 surfaceStats={surfaceStats}
@@ -1284,6 +1318,22 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
                     }
                   }
                 }}
+                onSurfaceColorChange={(id, color) => {
+                  const surface = surfacesRef.current?.find((s) => s.id === id)
+                  if (!surface) return
+                  const label = surface.label
+                  setSurfaces((prev) => prev.map((s) => (s.id === id ? { ...s, color } : s)))
+                  if (activeSurfaceId === id) activeSurfaceRef.current = { ...surface, color }
+                  if (sourcesRef.current) {
+                    ;(["polygon", "line", "point"] as LayerType[]).forEach((layerType) => {
+                      const source = sourcesRef.current[layerType]
+                      source.getFeatures().forEach((f: any) => {
+                        if (f.get("label") === label) f.set("color", color)
+                      })
+                      source.changed()
+                    })
+                  }
+                }}
                 hiddenSurfaceLabels={hiddenSurfaceLabels}
                 onToggleSurfaceVisibility={(label) => {
                   setHiddenSurfaceLabels((prev) =>
@@ -1312,7 +1362,12 @@ const [takeoffFeatureArea,setTakeoffarea]=useState({})
         {/* Map area */}
         <section className="flex-1 relative">
           <div ref={mapElRef} id="map" className="absolute inset-0" />
-          <Toolbox setActiveTool={setActiveTool} activeTool={tool} clientMode={props.userRole === "client"} />
+          <Toolbox
+            setActiveTool={setActiveTool}
+            activeTool={tool}
+            clientMode={props.userRole === "client"}
+            horizontal={props.userRole === "client"}
+          />
 
 
           {/* Drawing info */}

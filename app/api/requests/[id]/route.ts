@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import connectDB from "../../db/mongoose";
 import Request from "../request.schema";
 import { Types } from "mongoose";
+import { addCors, corsPreflight } from "@/lib/cors";
 
 function toResponse(r: any) {
   const qaComments = Array.isArray(r.qaComments)
@@ -40,24 +41,28 @@ function toResponse(r: any) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
     if (!id || !Types.ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 });
+      return addCors(request, NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 }));
     }
     await connectDB();
     const doc = await Request.findById(id).lean();
     if (!doc) {
-      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 });
+      return addCors(request, NextResponse.json({ success: false, error: "Request not found" }, { status: 404 }));
     }
-    return NextResponse.json({ success: true, data: toResponse(doc) });
+    return addCors(request, NextResponse.json({ success: true, data: toResponse(doc) }));
   } catch (error: any) {
     console.error("GET /api/requests/[id] error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflight(request);
 }
 
 export async function PUT(
@@ -67,7 +72,7 @@ export async function PUT(
   try {
     const { id } = await params;
     if (!id || !Types.ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 });
+      return addCors(request, NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 }));
     }
     await connectDB();
     const body = await request.json();
@@ -105,36 +110,36 @@ export async function PUT(
         : [];
     }
     if (Object.keys(updates).length === 0) {
-      return NextResponse.json({ success: false, error: "No valid fields to update" }, { status: 400 });
+      return addCors(request, NextResponse.json({ success: false, error: "No valid fields to update" }, { status: 400 }));
     }
     const doc = await Request.findByIdAndUpdate(id, { $set: updates }, { new: true }).lean();
     if (!doc) {
-      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 });
+      return addCors(request, NextResponse.json({ success: false, error: "Request not found" }, { status: 404 }));
     }
-    return NextResponse.json({ success: true, data: toResponse(doc) });
+    return addCors(request, NextResponse.json({ success: true, data: toResponse(doc) }));
   } catch (error: any) {
     console.error("PUT /api/requests/[id] error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
     if (!id || !Types.ObjectId.isValid(id)) {
-      return NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 });
+      return addCors(request, NextResponse.json({ success: false, error: "Invalid request ID" }, { status: 400 }));
     }
     await connectDB();
     const doc = await Request.findByIdAndDelete(id);
     if (!doc) {
-      return NextResponse.json({ success: false, error: "Request not found" }, { status: 404 });
+      return addCors(request, NextResponse.json({ success: false, error: "Request not found" }, { status: 404 }));
     }
-    return NextResponse.json({ success: true, message: "Request deleted" });
+    return addCors(request, NextResponse.json({ success: true, message: "Request deleted" }));
   } catch (error: any) {
     console.error("DELETE /api/requests/[id] error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
 }

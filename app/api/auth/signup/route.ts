@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import User from "../../modules/user.schema";
 import connectDB from "../../db/mongoose";
 import { registerSchema } from "../validators";
+import { addCors, corsPreflight } from "@/lib/cors";
 
 const JWT_SECRET = process.env.JWT_SECRET || "thisismeshoaibfuturebillionaire";
 
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
         // Validate request body
         const validation = registerSchema.safeParse(body);
         if (!validation.success) {
-            return NextResponse.json(
+            return addCors(request, NextResponse.json(
                 {
                     error: "Validation failed",
                     details: validation.error.errors.map((err) => ({
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
                     })),
                 },
                 { status: 400 }
-            );
+            ));
         }
 
         const { name, email, password, role } = validation.data;
@@ -33,10 +34,10 @@ export async function POST(request: NextRequest) {
         // Check if user already exists
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-            return NextResponse.json(
+            return addCors(request, NextResponse.json(
                 { error: "A user with this email already exists" },
                 { status: 409 }
-            );
+            ));
         }
 
         // Hash password
@@ -85,12 +86,16 @@ export async function POST(request: NextRequest) {
             maxAge: 60 * 60 * 24 * 7, // 7 days
         });
 
-        return response;
+        return addCors(request, response);
     } catch (error: any) {
         console.error("Signup error:", error);
-        return NextResponse.json(
+        return addCors(request, NextResponse.json(
             { error: "An error occurred during registration. Please try again." },
             { status: 500 }
-        );
+        ));
     }
+}
+
+export async function OPTIONS(request: NextRequest) {
+    return corsPreflight(request);
 }

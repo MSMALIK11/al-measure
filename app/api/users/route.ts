@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import connectDB from "../db/mongoose";
 import User from "../modules/user.schema";
 import { z } from "zod";
+import { addCors, corsPreflight } from "@/lib/cors";
 
 const createUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -36,11 +37,15 @@ export async function GET(request: NextRequest) {
       role: u.role,
     }));
 
-    return NextResponse.json({ success: true, data });
+    return addCors(request, NextResponse.json({ success: true, data }));
   } catch (error: any) {
     console.error("GET /api/users error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  return corsPreflight(request);
 }
 
 export async function POST(request: NextRequest) {
@@ -50,24 +55,24 @@ export async function POST(request: NextRequest) {
 
     const parsed = createUserSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         {
           success: false,
           error: "Validation failed",
           details: parsed.error.errors.map((e) => ({ field: e.path.join("."), message: e.message })),
         },
         { status: 400 }
-      );
+      ));
     }
 
     const { name, email, password, role } = parsed.data;
 
     const existing = await User.findOne({ email }).lean();
     if (existing) {
-      return NextResponse.json(
+      return addCors(request, NextResponse.json(
         { success: false, error: "A user with this email already exists" },
         { status: 409 }
-      );
+      ));
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -79,7 +84,7 @@ export async function POST(request: NextRequest) {
     });
 
     const u = user.toObject();
-    return NextResponse.json({
+    return addCors(request, NextResponse.json({
       success: true,
       data: {
         id: (u as any)._id.toString(),
@@ -87,9 +92,9 @@ export async function POST(request: NextRequest) {
         email: (u as any).email,
         role: (u as any).role,
       },
-    });
+    }));
   } catch (error: any) {
     console.error("POST /api/users error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return addCors(request, NextResponse.json({ success: false, error: error.message }, { status: 500 }));
   }
 }
